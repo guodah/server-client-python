@@ -1,6 +1,6 @@
 from .endpoint import Endpoint, api
 from .exceptions import MissingRequiredFieldError
-from .. import RequestFactory, PaginationItem, ScheduleItem, WorkbookItem, DatasourceItem, TaskItem
+from .. import RequestFactory, PaginationItem, ScheduleItem, TaskItem
 import logging
 import copy
 from collections import namedtuple
@@ -42,9 +42,6 @@ class Schedules(Endpoint):
     def update(self, schedule_item):
         if not schedule_item.id:
             error = "Schedule item missing ID."
-            raise MissingRequiredFieldError(error)
-        if schedule_item.interval_item is None:
-            error = "Interval item must be defined."
             raise MissingRequiredFieldError(error)
 
         url = "{0}/{1}".format(self.baseurl, schedule_item.id)

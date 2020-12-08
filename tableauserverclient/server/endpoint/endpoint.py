@@ -1,7 +1,7 @@
 from .exceptions import ServerResponseError, InternalServerError, NonXMLResponseError
 from functools import wraps
 from xml.etree.ElementTree import ParseError
-
+from ..query import QuerySet
 import logging
 
 try:
@@ -41,14 +41,18 @@ class Endpoint(object):
 
     def _make_request(self, method, url, content=None, request_object=None,
                       auth_token=None, content_type=None, parameters=None):
-        if request_object is not None:
-            url = request_object.apply_query_params(url)
         parameters = parameters or {}
+        if request_object is not None:
+            parameters["params"] = request_object.get_query_params()
         parameters.update(self.parent_srv.http_options)
         parameters['headers'] = Endpoint._make_common_headers(auth_token, content_type)
 
         if content is not None:
             parameters['data'] = content
+
+        logger.debug(u'request {}, url: {}'.format(method.__name__, url))
+        if content:
+            logger.debug(u'request content: {}'.format(content[:1000]))
 
         server_response = method(url, **parameters)
         self.parent_srv._namespace.detect(server_response.content)
@@ -56,13 +60,12 @@ class Endpoint(object):
 
         # This check is to determine if the response is a text response (xml or otherwise)
         # so that we do not attempt to log bytes and other binary data.
-        if server_response.encoding:
+        if len(server_response.content) > 0 and server_response.encoding:
             logger.debug(u'Server response from {0}:\n\t{1}'.format(
                 url, server_response.content.decode(server_response.encoding)))
         return server_response
 
     def _check_status(self, server_response):
-        logger.debug(self._safe_to_log(server_response))
         if server_response.status_code >= 500:
             raise InternalServerError(server_response)
         elif server_response.status_code not in Success_codes:
@@ -74,7 +77,7 @@ class Endpoint(object):
                 # we convert this to a better exception and pass through the raw
                 # response body
                 raise NonXMLResponseError(server_response.content)
-            except Exception as e:
+            except Exception:
                 # anything else re-raise here
                 raise
 
@@ -165,3 +168,25 @@ def parameter_added_in(**params):
             return func(self, *args, **kwargs)
         return wrapper
     return _decorator
+
+
+class QuerysetEndpoint(Endpoint):
+    @api(version="2.0")
+    def all(self, *args, **kwargs):
+        queryset = QuerySet(self)
+        return queryset
+
+    @api(version="2.0")
+    def filter(self, *args, **kwargs):
+        queryset = QuerySet(self).filter(**kwargs)
+        return queryset
+
+    @api(version="2.0")
+    def order_by(self, *args, **kwargs):
+        queryset = QuerySet(self).order_by(*args)
+        return queryset
+
+    @api(version="2.0")
+    def paginate(self, **kwargs):
+        queryset = QuerySet(self).paginate(**kwargs)
+        return queryset

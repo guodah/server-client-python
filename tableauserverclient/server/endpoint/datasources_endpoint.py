@@ -1,14 +1,13 @@
-from .endpoint import Endpoint, api, parameter_added_in
+from .endpoint import QuerysetEndpoint, api, parameter_added_in
 from .exceptions import InternalServerError, MissingRequiredFieldError
-from .endpoint import api, parameter_added_in, Endpoint
 from .permissions_endpoint import _PermissionsEndpoint
-from .exceptions import MissingRequiredFieldError
 from .fileuploads_endpoint import Fileuploads
 from .resource_tagger import _ResourceTagger
 from .. import RequestFactory, DatasourceItem, PaginationItem, ConnectionItem
-from ...filesys_helpers import to_filename, make_download_path
-from ...models.tag_item import TagItem
+from ..query import QuerySet
+from ...filesys_helpers import to_filename, make_download_path, get_file_type, get_file_object_size
 from ...models.job_item import JobItem
+
 import os
 import logging
 import copy
@@ -23,7 +22,7 @@ ALLOWED_FILE_EXTENSIONS = ['tds', 'tdsx', 'tde', 'hyper']
 logger = logging.getLogger('tableau.endpoint.datasources')
 
 
-class Datasources(Endpoint):
+class Datasources(QuerysetEndpoint):
     def __init__(self, parent_srv):
         super(Datasources, self).__init__(parent_srv)
         self._resource_tagger = _ResourceTagger(parent_srv)
@@ -129,7 +128,8 @@ class Datasources(Endpoint):
         server_response = self.put_request(url, update_req)
         logger.info('Updated datasource item (ID: {0})'.format(datasource_item.id))
         updated_datasource = copy.copy(datasource_item)
-        return updated_datasource._parse_common_elements(server_response.content, self.parent_srv.namespace)
+        return updated_datasource._parse_common_elements(
+            server_response.content, self.parent_srv.namespace)
 
     # Update datasource connections
     @api(version="2.3")
@@ -144,33 +144,74 @@ class Datasources(Endpoint):
                                                                                     connection_item.id))
         return connection
 
+    @api(version="2.8")
     def refresh(self, datasource_item):
-        url = "{0}/{1}/refresh".format(self.baseurl, datasource_item.id)
+        id_ = getattr(datasource_item, 'id', datasource_item)
+        url = "{0}/{1}/refresh".format(self.baseurl, id_)
         empty_req = RequestFactory.Empty.empty_req()
         server_response = self.post_request(url, empty_req)
         new_job = JobItem.from_response(server_response.content, self.parent_srv.namespace)[0]
         return new_job
 
+    @api(version='3.5')
+    def create_extract(self, datasource_item, encrypt=False):
+        id_ = getattr(datasource_item, 'id', datasource_item)
+        url = "{0}/{1}/createExtract?encrypt={2}".format(self.baseurl, id_, encrypt)
+        empty_req = RequestFactory.Empty.empty_req()
+        server_response = self.post_request(url, empty_req)
+        new_job = JobItem.from_response(server_response.content, self.parent_srv.namespace)[0]
+        return new_job
+
+    @api(version='3.5')
+    def delete_extract(self, datasource_item):
+        id_ = getattr(datasource_item, 'id', datasource_item)
+        url = "{0}/{1}/deleteExtract".format(self.baseurl, id_)
+        empty_req = RequestFactory.Empty.empty_req()
+        self.post_request(url, empty_req)
+
     # Publish datasource
     @api(version="2.0")
     @parameter_added_in(connections="2.8")
     @parameter_added_in(as_job='3.0')
-    def publish(self, datasource_item, file_path, mode, connection_credentials=None, connections=None, as_job=False):
-        if not os.path.isfile(file_path):
-            error = "File path does not lead to an existing file."
-            raise IOError(error)
+    def publish(self, datasource_item, file, mode, connection_credentials=None, connections=None, as_job=False):
+
+        try:
+
+            if not os.path.isfile(file):
+                error = "File path does not lead to an existing file."
+                raise IOError(error)
+
+            filename = os.path.basename(file)
+            file_extension = os.path.splitext(filename)[1][1:]
+            file_size = os.path.getsize(file)
+
+            # If name is not defined, grab the name from the file to publish
+            if not datasource_item.name:
+                datasource_item.name = os.path.splitext(filename)[0]
+            if file_extension not in ALLOWED_FILE_EXTENSIONS:
+                error = "Only {} files can be published as datasources.".format(', '.join(ALLOWED_FILE_EXTENSIONS))
+                raise ValueError(error)
+
+        except TypeError:
+
+            if not datasource_item.name:
+                error = "Datasource item must have a name when passing a file object"
+                raise ValueError(error)
+
+            file_type = get_file_type(file)
+            if file_type == 'zip':
+                file_extension = 'tdsx'
+            elif file_type == 'xml':
+                file_extension = 'tds'
+            else:
+                error = "Unsupported file type {}".format(file_type)
+                raise ValueError(error)
+
+            filename = "{}.{}".format(datasource_item.name, file_extension)
+            file_size = get_file_object_size(file)
+
         if not mode or not hasattr(self.parent_srv.PublishMode, mode):
             error = 'Invalid mode defined.'
-            raise ValueError(error)
-
-        filename = os.path.basename(file_path)
-        file_extension = os.path.splitext(filename)[1][1:]
-
-        # If name is not defined, grab the name from the file to publish
-        if not datasource_item.name:
-            datasource_item.name = os.path.splitext(filename)[0]
-        if file_extension not in ALLOWED_FILE_EXTENSIONS:
-            error = "Only {} files can be published as datasources.".format(', '.join(ALLOWED_FILE_EXTENSIONS))
             raise ValueError(error)
 
         # Construct the url with the defined mode
@@ -182,17 +223,22 @@ class Datasources(Endpoint):
             url += '&{0}=true'.format('asJob')
 
         # Determine if chunking is required (64MB is the limit for single upload method)
-        if os.path.getsize(file_path) >= FILESIZE_LIMIT:
+        if file_size >= FILESIZE_LIMIT:
             logger.info('Publishing {0} to server with chunking method (datasource over 64MB)'.format(filename))
-            upload_session_id = Fileuploads.upload_chunks(self.parent_srv, file_path)
+            upload_session_id = Fileuploads.upload_chunks(self.parent_srv, file)
             url = "{0}&uploadSessionId={1}".format(url, upload_session_id)
             xml_request, content_type = RequestFactory.Datasource.publish_req_chunked(datasource_item,
                                                                                       connection_credentials,
                                                                                       connections)
         else:
             logger.info('Publishing {0} to server'.format(filename))
-            with open(file_path, 'rb') as f:
-                file_contents = f.read()
+
+            try:
+                with open(file, 'rb') as f:
+                    file_contents = f.read()
+            except TypeError:
+                file_contents = file.read()
+
             xml_request, content_type = RequestFactory.Datasource.publish_req(datasource_item,
                                                                               filename,
                                                                               file_contents,
@@ -226,6 +272,14 @@ class Datasources(Endpoint):
 
     @api(version='2.0')
     def update_permission(self, item, permission_item):
+        import warnings
+        warnings.warn('Server.datasources.update_permission is deprecated, '
+                      'please use Server.datasources.update_permissions instead.',
+                      DeprecationWarning)
+        self._permissions.update(item, permission_item)
+
+    @api(version='2.0')
+    def update_permissions(self, item, permission_item):
         self._permissions.update(item, permission_item)
 
     @api(version='2.0')

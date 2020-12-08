@@ -4,7 +4,7 @@
 # parent_id.
 #
 #
-# To run the script, you must have installed Python 2.7.X or 3.3 and later.
+# To run the script, you must have installed Python 3.5 or later.
 ####
 
 import argparse
@@ -26,7 +26,7 @@ def create_project(server, project_item):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Get all of the refresh tasks available on a server')
+    parser = argparse.ArgumentParser(description='Create new projects.')
     parser.add_argument('--server', '-s', required=True, help='server address')
     parser.add_argument('--username', '-u', required=True, help='username to sign into server')
     parser.add_argument('--site', '-S', default=None)

@@ -1,7 +1,7 @@
 ####
 # This script demonstrates how to kill all of the running jobs
 #
-# To run the script, you must have installed Python 2.7.X or 3.3 and later.
+# To run the script, you must have installed Python 3.5 or later.
 ####
 
 import argparse
@@ -12,7 +12,7 @@ import tableauserverclient as TSC
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Cancel all of the running background jobs')
+    parser = argparse.ArgumentParser(description='Cancel all of the running background jobs.')
     parser.add_argument('--server', '-s', required=True, help='server address')
     parser.add_argument('--site', '-S', default=None, help='site to log into, do not specify for default site')
     parser.add_argument('--username', '-u', required=True, help='username to sign into server')

@@ -1,18 +1,20 @@
-from .endpoint import Endpoint, api
+from .endpoint import QuerysetEndpoint, api
 from .exceptions import MissingRequiredFieldError
 from .resource_tagger import _ResourceTagger
-from .. import RequestFactory, ViewItem, PaginationItem
-from ...models.tag_item import TagItem
-import logging
+from .permissions_endpoint import _PermissionsEndpoint
+from .. import ViewItem, PaginationItem
+
 from contextlib import closing
+import logging
 
 logger = logging.getLogger('tableau.endpoint.views')
 
 
-class Views(Endpoint):
+class Views(QuerysetEndpoint):
     def __init__(self, parent_srv):
         super(Views, self).__init__(parent_srv)
         self._resource_tagger = _ResourceTagger(parent_srv)
+        self._permissions = _PermissionsEndpoint(parent_srv, lambda: self.baseurl)
 
     # Used because populate_preview_image functionaliy requires workbook endpoint
     @property
@@ -33,6 +35,16 @@ class Views(Endpoint):
         pagination_item = PaginationItem.from_response(server_response.content, self.parent_srv.namespace)
         all_view_items = ViewItem.from_response(server_response.content, self.parent_srv.namespace)
         return all_view_items, pagination_item
+
+    @api(version="3.1")
+    def get_by_id(self, view_id):
+        if not view_id:
+            error = "View item missing ID."
+            raise MissingRequiredFieldError(error)
+        logger.info('Querying single view (ID: {0})'.format(view_id))
+        url = "{0}/{1}".format(self.baseurl, view_id)
+        server_response = self.get_request(url)
+        return ViewItem.from_response(server_response.content, self.parent_srv.namespace)[0]
 
     @api(version="2.0")
     def populate_preview_image(self, view_item):
@@ -108,6 +120,18 @@ class Views(Endpoint):
         with closing(self.get_request(url, request_object=req_options, parameters={"stream": True})) as server_response:
             csv = server_response.iter_content(1024)
         return csv
+
+    @api(version='3.2')
+    def populate_permissions(self, item):
+        self._permissions.populate(item)
+
+    @api(version='3.2')
+    def update_permissions(self, resource, rules):
+        return self._permissions.update(resource, rules)
+
+    @api(version='3.2')
+    def delete_permission(self, item, capability_item):
+        return self._permissions.delete(item, capability_item)
 
     # Update view. Currently only tags can be updated
     def update(self, view_item):
