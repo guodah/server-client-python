@@ -1,4 +1,6 @@
 import xml.etree.ElementTree as ET
+
+from .property_decorators import property_is_data_acceleration_config
 from ..datetime_helpers import parse_datetime
 from .exceptions import UnpopulatedPropertyError
 from .tag_item import TagItem
@@ -24,6 +26,11 @@ class ViewItem(object):
         self._workbook_id = None
         self._permissions = None
         self.tags = set()
+        self.data_acceleration_config = {'acceleration_enabled': None,
+                                         'accelerate_now': None,
+                                         'last_updated_at': None,
+                                         'acceleration_status': None}
+
 
     def _set_preview_image(self, preview_image):
         self._preview_image = preview_image
@@ -107,6 +114,15 @@ class ViewItem(object):
     @property
     def workbook_id(self):
         return self._workbook_id
+
+    @property
+    def data_acceleration_config(self):
+        return self._data_acceleration_config
+
+    @data_acceleration_config.setter
+    @property_is_data_acceleration_config
+    def data_acceleration_config(self, value):
+        self._data_acceleration_config = value
 
     @property
     def permissions(self):

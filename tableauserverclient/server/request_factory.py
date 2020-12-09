@@ -51,6 +51,30 @@ def _add_credentials_element(parent_element, connection_credentials):
         credentials_element.attrib['oAuth'] = 'true'
 
 
+def _add_data_acceleration_config(parent_element, data_acceleration_config):
+    if data_acceleration_config['acceleration_enabled'] is None:
+        return
+
+    data_acceleration_element = ET.SubElement(parent_element, 'dataAccelerationConfig')
+    data_acceleration_element.attrib['accelerationEnabled'] = str(data_acceleration_config
+                                                                  ["acceleration_enabled"]).lower()
+    if data_acceleration_config['accelerate_now'] is not None:
+        data_acceleration_element.attrib['accelerateNow'] = str(data_acceleration_config
+                                                                ["accelerate_now"]).lower()
+
+
+def _add_views_in_workbook_update_request(workbook_element, views):
+    if views is None:
+        return
+
+    views_element = ET.SubElement(workbook_element, 'views')
+    for view in views:
+        view_element = ET.SubElement(views_element, 'view')
+        view_element.attrib['id'] = view.id
+        view_element.attrib['name'] = view.name
+        _add_data_acceleration_config(view_element, view.data_acceleration_config)
+
+
 class AuthRequest(object):
     def signin_req(self, auth_item):
         xml_request = ET.Element('tsRequest')
@@ -593,20 +617,15 @@ class WorkbookRequest(object):
         if workbook_item.owner_id:
             owner_element = ET.SubElement(workbook_element, 'owner')
             owner_element.attrib['id'] = workbook_item.owner_id
-        if workbook_item.data_acceleration_config['acceleration_enabled'] is not None:
-            data_acceleration_config = workbook_item.data_acceleration_config
-            data_acceleration_element = ET.SubElement(workbook_element, 'dataAccelerationConfig')
-            data_acceleration_element.attrib['accelerationEnabled'] = str(data_acceleration_config
-                                                                          ["acceleration_enabled"]).lower()
-            if data_acceleration_config['accelerate_now'] is not None:
-                data_acceleration_element.attrib['accelerateNow'] = str(data_acceleration_config
-                                                                        ["accelerate_now"]).lower()
+
+        _add_data_acceleration_config(workbook_element, workbook_item.data_acceleration_config)
+        _add_views_in_workbook_update_request(workbook_element, workbook_item.views)
 
         return ET.tostring(xml_request)
 
     def publish_req(
-        self, workbook_item, filename, file_contents,
-        connection_credentials=None, connections=None, hidden_views=None
+            self, workbook_item, filename, file_contents,
+            connection_credentials=None, connections=None, hidden_views=None
     ):
         xml_request = self._generate_xml(workbook_item,
                                          connection_credentials=connection_credentials,
@@ -618,8 +637,8 @@ class WorkbookRequest(object):
         return _add_multipart(parts)
 
     def publish_req_chunked(
-        self, workbook_item, connection_credentials=None, connections=None,
-        hidden_views=None
+            self, workbook_item, connection_credentials=None, connections=None,
+            hidden_views=None
     ):
         xml_request = self._generate_xml(workbook_item,
                                          connection_credentials=connection_credentials,
