@@ -1,10 +1,9 @@
 from .endpoint import api, Endpoint
 from .exceptions import MissingRequiredFieldError
 from .permissions_endpoint import _PermissionsEndpoint
-from .default_permissions_endpoint import _DefaultPermissionsEndpoint
 from ..pager import Pager
 
-from .. import RequestFactory, TableItem, ColumnItem, PaginationItem, PermissionsRule, Permission
+from .. import RequestFactory, TableItem, ColumnItem, PaginationItem
 
 import logging
 
@@ -101,6 +100,14 @@ class Tables(Endpoint):
 
     @api(version='3.5')
     def update_permission(self, item, rules):
+        import warnings
+        warnings.warn('Server.tables.update_permission is deprecated, '
+                      'please use Server.tables.update_permissions instead.',
+                      DeprecationWarning)
+        return self._permissions.update(item, rules)
+
+    @api(version='3.5')
+    def update_permissions(self, item, rules):
         return self._permissions.update(item, rules)
 
     @api(version='3.5')

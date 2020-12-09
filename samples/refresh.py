@@ -1,7 +1,7 @@
 ####
 # This script demonstrates how to use trigger a refresh on a datasource or workbook
 #
-# To run the script, you must have installed Python 2.7.X or 3.3 and later.
+# To run the script, you must have installed Python 3.5 or later.
 ####
 
 import argparse
@@ -12,7 +12,7 @@ import tableauserverclient as TSC
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Get all of the refresh tasks available on a server')
+    parser = argparse.ArgumentParser(description='Trigger a refresh task on a workbook or datasource.')
     parser.add_argument('--server', '-s', required=True, help='server address')
     parser.add_argument('--username', '-u', required=True, help='username to sign into server')
     parser.add_argument('--site', '-S', default=None)

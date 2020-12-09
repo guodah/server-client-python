@@ -34,6 +34,13 @@ The following people have contributed to this project to make it possible, and w
 * [Kacper Wolkiewicz](https://github.com/wolkiewiczk)
 * [Dahai Guo](https://github.com/guodah)
 * [Geraldine Zanolli](https://github.com/illonage)
+* [Jordan Woods](https://github.com/jorwoods)
+* [Reba Magier](https://github.com/rmagier1)
+* [Stephen Mitchell](https://github.com/scuml)
+* [absentmoose](https://github.com/absentmoose)
+* [Paul Vickers](https://github.com/paulvic)
+* [Madhura Selvarajan](https://github.com/maddy-at-leisure)
+* [Niklas Nevalainen](https://github.com/nnevalainen)
 
 ## Core Team
 
@@ -42,8 +49,8 @@ The following people have contributed to this project to make it possible, and w
 * [Tyler Doyle](https://github.com/t8y8)
 * [Russell Hay](https://github.com/RussTheAerialist)
 * [Ben Lower](https://github.com/benlower)
-* [Jackson Huang](https://github.com/jz-huang)
 * [Ang Gao](https://github.com/gaoang2148)
 * [Priya Reguraman](https://github.com/preguraman)
 * [Jac Fitzgerald](https://github.com/jacalata)
 * [Dan Zucker](https://github.com/dzucker-tab)
+* [Brian Cantoni](https://github.com/bcantoni)

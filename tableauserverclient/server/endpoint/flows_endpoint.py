@@ -1,14 +1,12 @@
-from .endpoint import Endpoint, api, parameter_added_in
+from .endpoint import Endpoint, api
 from .exceptions import InternalServerError, MissingRequiredFieldError
-from .endpoint import api, parameter_added_in, Endpoint
 from .permissions_endpoint import _PermissionsEndpoint
-from .exceptions import MissingRequiredFieldError
 from .fileuploads_endpoint import Fileuploads
 from .resource_tagger import _ResourceTagger
 from .. import RequestFactory, FlowItem, PaginationItem, ConnectionItem
 from ...filesys_helpers import to_filename, make_download_path
-from ...models.tag_item import TagItem
 from ...models.job_item import JobItem
+
 import os
 import logging
 import copy
@@ -206,6 +204,14 @@ class Flows(Endpoint):
 
     @api(version='3.3')
     def update_permission(self, item, permission_item):
+        import warnings
+        warnings.warn('Server.flows.update_permission is deprecated, '
+                      'please use Server.flows.update_permissions instead.',
+                      DeprecationWarning)
+        self._permissions.update(item, permission_item)
+
+    @api(version='3.3')
+    def update_permissions(self, item, permission_item):
         self._permissions.update(item, permission_item)
 
     @api(version='3.3')

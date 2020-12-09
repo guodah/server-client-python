@@ -1,7 +1,10 @@
 import xml.etree.ElementTree as ET
+
+from .property_decorators import property_is_data_acceleration_config
 from ..datetime_helpers import parse_datetime
 from .exceptions import UnpopulatedPropertyError
 from .tag_item import TagItem
+import copy
 
 
 class ViewItem(object):
@@ -21,7 +24,13 @@ class ViewItem(object):
         self._sheet_type = None
         self._updated_at = None
         self._workbook_id = None
+        self._permissions = None
         self.tags = set()
+        self.data_acceleration_config = {'acceleration_enabled': None,
+                                         'accelerate_now': None,
+                                         'last_updated_at': None,
+                                         'acceleration_status': None}
+
 
     def _set_preview_image(self, preview_image):
         self._preview_image = preview_image
@@ -106,6 +115,25 @@ class ViewItem(object):
     def workbook_id(self):
         return self._workbook_id
 
+    @property
+    def data_acceleration_config(self):
+        return self._data_acceleration_config
+
+    @data_acceleration_config.setter
+    @property_is_data_acceleration_config
+    def data_acceleration_config(self, value):
+        self._data_acceleration_config = value
+
+    @property
+    def permissions(self):
+        if self._permissions is None:
+            error = "View item must be populated with permissions first."
+            raise UnpopulatedPropertyError(error)
+        return self._permissions()
+
+    def _set_permissions(self, permissions):
+        self._permissions = permissions
+
     @classmethod
     def from_response(cls, resp, ns, workbook_id=''):
         return cls.from_xml_element(ET.fromstring(resp), ns, workbook_id)
@@ -147,7 +175,7 @@ class ViewItem(object):
             if tags_elem is not None:
                 tags = TagItem.from_xml_element(tags_elem, ns)
                 view_item.tags = tags
-                view_item._initial_tags = tags
+                view_item._initial_tags = copy.copy(tags)
 
             all_view_items.append(view_item)
         return all_view_items

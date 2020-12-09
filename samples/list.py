@@ -1,7 +1,7 @@
 ####
 # This script demonstrates how to list all of the workbooks or datasources
 #
-# To run the script, you must have installed Python 2.7.X or 3.3 and later.
+# To run the script, you must have installed Python 3.5 or later.
 ####
 
 import argparse
@@ -14,7 +14,7 @@ import tableauserverclient as TSC
 
 
 def main():
-    parser = argparse.ArgumentParser(description='List out the names and LUIDs for different resource types')
+    parser = argparse.ArgumentParser(description='List out the names and LUIDs for different resource types.')
     parser.add_argument('--server', '-s', required=True, help='server address')
     parser.add_argument('--site', '-S', default="", help='site to log into, do not specify for default site')
     parser.add_argument('--token-name', '-n', required=True, help='username to signin under')

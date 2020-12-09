@@ -1,13 +1,11 @@
-from .endpoint import Endpoint, api, parameter_added_in
+from .endpoint import QuerysetEndpoint, api, parameter_added_in
 from .exceptions import InternalServerError, MissingRequiredFieldError
 from .permissions_endpoint import _PermissionsEndpoint
-from .exceptions import MissingRequiredFieldError
 from .fileuploads_endpoint import Fileuploads
 from .resource_tagger import _ResourceTagger
 from .. import RequestFactory, WorkbookItem, ConnectionItem, ViewItem, PaginationItem
-from ...models.tag_item import TagItem
 from ...models.job_item import JobItem
-from ...filesys_helpers import to_filename, make_download_path
+from ...filesys_helpers import to_filename, make_download_path, get_file_type, get_file_object_size
 
 import os
 import logging
@@ -23,7 +21,7 @@ ALLOWED_FILE_EXTENSIONS = ['twb', 'twbx']
 logger = logging.getLogger('tableau.endpoint.workbooks')
 
 
-class Workbooks(Endpoint):
+class Workbooks(QuerysetEndpoint):
     def __init__(self, parent_srv):
         super(Workbooks, self).__init__(parent_srv)
         self._resource_tagger = _ResourceTagger(parent_srv)
@@ -39,8 +37,10 @@ class Workbooks(Endpoint):
         logger.info('Querying all workbooks on site')
         url = self.baseurl
         server_response = self.get_request(url, req_options)
-        pagination_item = PaginationItem.from_response(server_response.content, self.parent_srv.namespace)
-        all_workbook_items = WorkbookItem.from_response(server_response.content, self.parent_srv.namespace)
+        pagination_item = PaginationItem.from_response(
+            server_response.content, self.parent_srv.namespace)
+        all_workbook_items = WorkbookItem.from_response(
+            server_response.content, self.parent_srv.namespace)
         return all_workbook_items, pagination_item
 
     # Get 1 workbook
@@ -56,11 +56,31 @@ class Workbooks(Endpoint):
 
     @api(version="2.8")
     def refresh(self, workbook_id):
-        url = "{0}/{1}/refresh".format(self.baseurl, workbook_id)
+        id_ = getattr(workbook_id, 'id', workbook_id)
+        url = "{0}/{1}/refresh".format(self.baseurl, id_)
         empty_req = RequestFactory.Empty.empty_req()
         server_response = self.post_request(url, empty_req)
         new_job = JobItem.from_response(server_response.content, self.parent_srv.namespace)[0]
         return new_job
+
+    # create one or more extracts on 1 workbook, optionally encrypted
+    @api(version='3.5')
+    def create_extract(self, workbook_item, encrypt=False, includeAll=True, datasources=None):
+        id_ = getattr(workbook_item, 'id', workbook_item)
+        url = "{0}/{1}/createExtract?encrypt={2}".format(self.baseurl, id_, encrypt)
+
+        datasource_req = RequestFactory.Workbook.embedded_extract_req(includeAll, datasources)
+        server_response = self.post_request(url, datasource_req)
+        new_job = JobItem.from_response(server_response.content, self.parent_srv.namespace)[0]
+        return new_job
+
+    # delete all the extracts on 1 workbook
+    @api(version='3.5')
+    def delete_extract(self, workbook_item):
+        id_ = getattr(workbook_item, 'id', workbook_item)
+        url = "{0}/{1}/deleteExtract".format(self.baseurl, id_)
+        empty_req = RequestFactory.Empty.empty_req()
+        server_response = self.post_request(url, empty_req)
 
     # Delete 1 workbook by id
     @api(version="2.0")
@@ -233,28 +253,58 @@ class Workbooks(Endpoint):
     @api(version="2.0")
     @parameter_added_in(as_job='3.0')
     @parameter_added_in(connections='2.8')
-    def publish(self, workbook_item, file_path, mode, connection_credentials=None, connections=None, as_job=False):
+    def publish(
+        self, workbook_item, file, mode,
+        connection_credentials=None, connections=None, as_job=False,
+        hidden_views=None
+    ):
 
         if connection_credentials is not None:
             import warnings
             warnings.warn("connection_credentials is being deprecated. Use connections instead",
                           DeprecationWarning)
 
-        if not os.path.isfile(file_path):
-            error = "File path does not lead to an existing file."
-            raise IOError(error)
+        try:
+            # Expect file to be a filepath
+            if not os.path.isfile(file):
+                error = "File path does not lead to an existing file."
+                raise IOError(error)
+
+            filename = os.path.basename(file)
+            file_extension = os.path.splitext(filename)[1][1:]
+            file_size = os.path.getsize(file)
+
+            # If name is not defined, grab the name from the file to publish
+            if not workbook_item.name:
+                workbook_item.name = os.path.splitext(filename)[0]
+            if file_extension not in ALLOWED_FILE_EXTENSIONS:
+                error = "Only {} files can be published as workbooks.".format(', '.join(ALLOWED_FILE_EXTENSIONS))
+                raise ValueError(error)
+
+        except TypeError:
+            # Expect file to be a file object
+            file_size = get_file_object_size(file)
+
+            file_type = get_file_type(file)
+
+            if file_type == 'zip':
+                file_extension = 'twbx'
+            elif file_type == 'xml':
+                file_extension = 'twb'
+            else:
+                error = 'Unsupported file type {}!'.format(file_type)
+                raise ValueError(error)
+
+            if not workbook_item.name:
+                error = "Workbook item must have a name when passing a file object"
+                raise ValueError(error)
+
+            # Generate filename for file object.
+            # This is needed when publishing the workbook in a single request
+            filename = "{}.{}".format(workbook_item.name, file_extension)
+
         if not hasattr(self.parent_srv.PublishMode, mode):
             error = 'Invalid mode defined.'
-            raise ValueError(error)
-
-        filename = os.path.basename(file_path)
-        file_extension = os.path.splitext(filename)[1][1:]
-
-        # If name is not defined, grab the name from the file to publish
-        if not workbook_item.name:
-            workbook_item.name = os.path.splitext(filename)[0]
-        if file_extension not in ALLOWED_FILE_EXTENSIONS:
-            error = "Only {} files can be published as workbooks.".format(', '.join(ALLOWED_FILE_EXTENSIONS))
             raise ValueError(error)
 
         # Construct the url with the defined mode
@@ -269,24 +319,32 @@ class Workbooks(Endpoint):
             url += '&{0}=true'.format('asJob')
 
         # Determine if chunking is required (64MB is the limit for single upload method)
-        if os.path.getsize(file_path) >= FILESIZE_LIMIT:
-            logger.info('Publishing {0} to server with chunking method (workbook over 64MB)'.format(filename))
-            upload_session_id = Fileuploads.upload_chunks(self.parent_srv, file_path)
+        if file_size >= FILESIZE_LIMIT:
+            logger.info('Publishing {0} to server with chunking method (workbook over 64MB)'.format(workbook_item.name))
+            upload_session_id = Fileuploads.upload_chunks(self.parent_srv, file)
             url = "{0}&uploadSessionId={1}".format(url, upload_session_id)
             conn_creds = connection_credentials
             xml_request, content_type = RequestFactory.Workbook.publish_req_chunked(workbook_item,
                                                                                     connection_credentials=conn_creds,
-                                                                                    connections=connections)
+                                                                                    connections=connections,
+                                                                                    hidden_views=hidden_views)
         else:
             logger.info('Publishing {0} to server'.format(filename))
-            with open(file_path, 'rb') as f:
-                file_contents = f.read()
+
+            try:
+                with open(file, 'rb') as f:
+                    file_contents = f.read()
+
+            except TypeError:
+                file_contents = file.read()
+
             conn_creds = connection_credentials
             xml_request, content_type = RequestFactory.Workbook.publish_req(workbook_item,
                                                                             filename,
                                                                             file_contents,
                                                                             connection_credentials=conn_creds,
-                                                                            connections=connections)
+                                                                            connections=connections,
+                                                                            hidden_views=hidden_views)
         logger.debug('Request xml: {0} '.format(xml_request[:1000]))
 
         # Send the publishing request to server
@@ -299,9 +357,9 @@ class Workbooks(Endpoint):
 
         if as_job:
             new_job = JobItem.from_response(server_response.content, self.parent_srv.namespace)[0]
-            logger.info('Published {0} (JOB_ID: {1}'.format(filename, new_job.id))
+            logger.info('Published {0} (JOB_ID: {1}'.format(workbook_item.name, new_job.id))
             return new_job
         else:
             new_workbook = WorkbookItem.from_response(server_response.content, self.parent_srv.namespace)[0]
-            logger.info('Published {0} (ID: {1})'.format(filename, new_workbook.id))
+            logger.info('Published {0} (ID: {1})'.format(workbook_item.name, new_workbook.id))
             return new_workbook

@@ -20,6 +20,7 @@ class Permission:
         ChangePermissions = 'ChangePermissions'
         Connect = 'Connect'
         Delete = 'Delete'
+        Execute = 'Execute'
         ExportData = 'ExportData'
         ExportImage = 'ExportImage'
         ExportXml = 'ExportXml'
@@ -38,6 +39,7 @@ class Permission:
         Flow = 'flow'
         Table = 'table'
         Database = 'database'
+        View = 'view'
 
 
 class PermissionsRule(object):

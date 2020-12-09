@@ -4,22 +4,26 @@ import requests_mock
 import tableauserverclient as TSC
 
 from tableauserverclient.datetime_helpers import format_datetime
+from tableauserverclient import UserItem, GroupItem, PermissionsRule
 
 TEST_ASSET_DIR = os.path.join(os.path.dirname(__file__), 'assets')
 
 ADD_TAGS_XML = os.path.join(TEST_ASSET_DIR, 'view_add_tags.xml')
 GET_XML = os.path.join(TEST_ASSET_DIR, 'view_get.xml')
+GET_XML_ID = os.path.join(TEST_ASSET_DIR, 'view_get_id.xml')
 GET_XML_USAGE = os.path.join(TEST_ASSET_DIR, 'view_get_usage.xml')
 POPULATE_PREVIEW_IMAGE = os.path.join(TEST_ASSET_DIR, 'Sample View Image.png')
 POPULATE_PDF = os.path.join(TEST_ASSET_DIR, 'populate_pdf.pdf')
 POPULATE_CSV = os.path.join(TEST_ASSET_DIR, 'populate_csv.csv')
+POPULATE_PERMISSIONS_XML = os.path.join(TEST_ASSET_DIR, 'view_populate_permissions.xml')
+UPDATE_PERMISSIONS = os.path.join(TEST_ASSET_DIR, 'view_update_permissions.xml')
 UPDATE_XML = os.path.join(TEST_ASSET_DIR, 'workbook_update.xml')
 
 
 class ViewTests(unittest.TestCase):
     def setUp(self):
         self.server = TSC.Server('http://test')
-        self.server.version = '2.7'
+        self.server.version = '3.2'
 
         # Fake sign in
         self.server._site_id = 'dad65087-b08b-4603-af4e-2887b8aafc67'
@@ -56,6 +60,27 @@ class ViewTests(unittest.TestCase):
         self.assertEqual('2002-05-30T09:00:00Z', format_datetime(all_views[1].created_at))
         self.assertEqual('2002-06-05T08:00:59Z', format_datetime(all_views[1].updated_at))
         self.assertEqual('story', all_views[1].sheet_type)
+
+    def test_get_by_id(self):
+        with open(GET_XML_ID, 'rb') as f:
+            response_xml = f.read().decode('utf-8')
+        with requests_mock.mock() as m:
+            m.get(self.baseurl + '/d79634e1-6063-4ec9-95ff-50acbf609ff5', text=response_xml)
+            view = self.server.views.get_by_id('d79634e1-6063-4ec9-95ff-50acbf609ff5')
+
+        self.assertEqual('d79634e1-6063-4ec9-95ff-50acbf609ff5', view.id)
+        self.assertEqual('ENDANGERED SAFARI', view.name)
+        self.assertEqual('SafariSample/sheets/ENDANGEREDSAFARI', view.content_url)
+        self.assertEqual('3cc6cd06-89ce-4fdc-b935-5294135d6d42', view.workbook_id)
+        self.assertEqual('5de011f8-5aa9-4d5b-b991-f462c8dd6bb7', view.owner_id)
+        self.assertEqual('5241e88d-d384-4fd7-9c2f-648b5247efc5', view.project_id)
+        self.assertEqual(set(['tag1', 'tag2']), view.tags)
+        self.assertEqual('2002-05-30T09:00:00Z', format_datetime(view.created_at))
+        self.assertEqual('2002-06-05T08:00:59Z', format_datetime(view.updated_at))
+        self.assertEqual('story', view.sheet_type)
+
+    def test_get_by_id_missing_id(self):
+        self.assertRaises(TSC.MissingRequiredFieldError, self.server.views.get_by_id, None)
 
     def test_get_with_usage(self):
         with open(GET_XML_USAGE, 'rb') as f:
@@ -126,14 +151,15 @@ class ViewTests(unittest.TestCase):
             self.server.views.populate_image(single_view)
             self.assertEqual(response, single_view.image)
 
-    def test_populate_image_high_resolution(self):
+    def test_populate_image_with_options(self):
         with open(POPULATE_PREVIEW_IMAGE, 'rb') as f:
             response = f.read()
         with requests_mock.mock() as m:
-            m.get(self.baseurl + '/d79634e1-6063-4ec9-95ff-50acbf609ff5/image?resolution=high', content=response)
+            m.get(self.baseurl + '/d79634e1-6063-4ec9-95ff-50acbf609ff5/image?resolution=high&maxAge=10',
+                  content=response)
             single_view = TSC.ViewItem()
             single_view._id = 'd79634e1-6063-4ec9-95ff-50acbf609ff5'
-            req_option = TSC.ImageRequestOptions(imageresolution=TSC.ImageRequestOptions.Resolution.High)
+            req_option = TSC.ImageRequestOptions(imageresolution=TSC.ImageRequestOptions.Resolution.High, maxage=10)
             self.server.views.populate_image(single_view, req_option)
             self.assertEqual(response, single_view.image)
 
@@ -141,19 +167,32 @@ class ViewTests(unittest.TestCase):
         with open(POPULATE_PDF, 'rb') as f:
             response = f.read()
         with requests_mock.mock() as m:
-            m.get(self.baseurl + '/d79634e1-6063-4ec9-95ff-50acbf609ff5/pdf?type=letter&orientation=portrait',
+            m.get(self.baseurl + '/d79634e1-6063-4ec9-95ff-50acbf609ff5/pdf?type=letter&orientation=portrait&maxAge=5',
                   content=response)
             single_view = TSC.ViewItem()
             single_view._id = 'd79634e1-6063-4ec9-95ff-50acbf609ff5'
 
             size = TSC.PDFRequestOptions.PageType.Letter
             orientation = TSC.PDFRequestOptions.Orientation.Portrait
-            req_option = TSC.PDFRequestOptions(size, orientation)
+            req_option = TSC.PDFRequestOptions(size, orientation, 5)
 
             self.server.views.populate_pdf(single_view, req_option)
             self.assertEqual(response, single_view.pdf)
 
     def test_populate_csv(self):
+        with open(POPULATE_CSV, 'rb') as f:
+            response = f.read()
+        with requests_mock.mock() as m:
+            m.get(self.baseurl + '/d79634e1-6063-4ec9-95ff-50acbf609ff5/data?maxAge=1', content=response)
+            single_view = TSC.ViewItem()
+            single_view._id = 'd79634e1-6063-4ec9-95ff-50acbf609ff5'
+            request_option = TSC.CSVRequestOptions(maxage=1)
+            self.server.views.populate_csv(single_view, request_option)
+
+            csv_file = b"".join(single_view.csv)
+            self.assertEqual(response, csv_file)
+
+    def test_populate_csv_default_maxage(self):
         with open(POPULATE_CSV, 'rb') as f:
             response = f.read()
         with requests_mock.mock() as m:
@@ -169,6 +208,59 @@ class ViewTests(unittest.TestCase):
         single_view = TSC.ViewItem()
         single_view._id = None
         self.assertRaises(TSC.MissingRequiredFieldError, self.server.views.populate_image, single_view)
+
+    def test_populate_permissions(self):
+        with open(POPULATE_PERMISSIONS_XML, 'rb') as f:
+            response_xml = f.read().decode('utf-8')
+        with requests_mock.mock() as m:
+            m.get(self.baseurl + "/e490bec4-2652-4fda-8c4e-f087db6fa328/permissions", text=response_xml)
+            single_view = TSC.ViewItem()
+            single_view._id = "e490bec4-2652-4fda-8c4e-f087db6fa328"
+
+            self.server.views.populate_permissions(single_view)
+            permissions = single_view.permissions
+
+            self.assertEqual(permissions[0].grantee.tag_name, 'group')
+            self.assertEqual(permissions[0].grantee.id, 'c8f2773a-c83a-11e8-8c8f-33e6d787b506')
+            self.assertDictEqual(permissions[0].capabilities, {
+                TSC.Permission.Capability.ViewComments: TSC.Permission.Mode.Allow,
+                TSC.Permission.Capability.Read: TSC.Permission.Mode.Allow,
+                TSC.Permission.Capability.AddComment: TSC.Permission.Mode.Allow,
+                TSC.Permission.Capability.ExportData: TSC.Permission.Mode.Allow,
+                TSC.Permission.Capability.ExportImage: TSC.Permission.Mode.Allow,
+
+            })
+
+    def test_add_permissions(self):
+        with open(UPDATE_PERMISSIONS, 'rb') as f:
+            response_xml = f.read().decode('utf-8')
+
+        single_view = TSC.ViewItem()
+        single_view._id = '21778de4-b7b9-44bc-a599-1506a2639ace'
+
+        bob = UserItem.as_reference("7c37ee24-c4b1-42b6-a154-eaeab7ee330a")
+        group_of_people = GroupItem.as_reference("5e5e1978-71fa-11e4-87dd-7382f5c437af")
+
+        new_permissions = [
+            PermissionsRule(bob, {'Write': 'Allow'}),
+            PermissionsRule(group_of_people, {'Read': 'Deny'})
+        ]
+
+        with requests_mock.mock() as m:
+            m.put(self.baseurl + "/21778de4-b7b9-44bc-a599-1506a2639ace/permissions", text=response_xml)
+            permissions = self.server.views.update_permissions(single_view, new_permissions)
+
+        self.assertEqual(permissions[0].grantee.tag_name, 'group')
+        self.assertEqual(permissions[0].grantee.id, '5e5e1978-71fa-11e4-87dd-7382f5c437af')
+        self.assertDictEqual(permissions[0].capabilities, {
+            TSC.Permission.Capability.Read: TSC.Permission.Mode.Deny
+        })
+
+        self.assertEqual(permissions[1].grantee.tag_name, 'user')
+        self.assertEqual(permissions[1].grantee.id, '7c37ee24-c4b1-42b6-a154-eaeab7ee330a')
+        self.assertDictEqual(permissions[1].capabilities, {
+            TSC.Permission.Capability.Write: TSC.Permission.Mode.Allow
+        })
 
     def test_update_tags(self):
         with open(ADD_TAGS_XML, 'rb') as f:
